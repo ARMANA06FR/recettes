@@ -229,27 +229,147 @@ async function importPayload(data, mode = 'merge') {
 }
 
 /* ===== URL import (JSON-LD + basic HTML) ===== */
+function withTimeout(ms) {
+  if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+    try { return AbortSignal.timeout(ms); } catch (_) {}
+  }
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
+async function fetchText(url, opts = {}) {
+  const res = await fetch(url, { ...opts, signal: opts.signal || withTimeout(15000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
 async function fetchRecipeFromUrl(url) {
-  // Try direct, then CORS proxies
-  const proxies = [
-    (u) => u,
-    (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`
-  ];
-  let html = null;
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error('L\'URL doit commencer par http:// ou https://');
+  }
+
+  const attempts = [];
   let lastError = null;
-  for (const build of proxies) {
+
+  // 1) Jina Reader — renvoie souvent le HTML lisible sans CORS côté site cible
+  attempts.push(async () => {
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { 'X-Return-Format': 'html', Accept: 'text/html' },
+      signal: withTimeout(20000)
+    });
+    if (!res.ok) throw new Error(`Jina HTTP ${res.status}`);
+    const html = await res.text();
+    if (!html || html.length < 150) throw new Error('Jina: contenu vide');
+    // Si c\'est du markdown (pas de HTML), on parse quand même
+    if (!html.includes('<') && html.includes('Markdown Content')) {
+      return parseRecipeFromMarkdown(html, url);
+    }
+    return parseRecipeFromHtml(html, url);
+  });
+
+  // 2) Jina en markdown (plus stable sur certains sites)
+  attempts.push(async () => {
+    const text = await fetchText(`https://r.jina.ai/${url}`);
+    if (!text || text.length < 100) throw new Error('Jina markdown vide');
+    return parseRecipeFromMarkdown(text, url);
+  });
+
+  // 3) allorigins /get (JSON { contents })
+  attempts.push(async () => {
+    const raw = await fetchText(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+    const data = JSON.parse(raw);
+    const html = data.contents || '';
+    if (!html || html.length < 200) throw new Error('allorigins: contenu vide');
+    return parseRecipeFromHtml(html, url);
+  });
+
+  // 4) allorigins /raw
+  attempts.push(async () => {
+    const html = await fetchText(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+    if (!html || html.length < 200) throw new Error('allorigins raw: vide');
+    return parseRecipeFromHtml(html, url);
+  });
+
+  // 5) Direct (échoue presque toujours à cause du CORS, mais au cas où)
+  attempts.push(async () => {
+    const html = await fetchText(url);
+    return parseRecipeFromHtml(html, url);
+  });
+
+  for (const attempt of attempts) {
     try {
-      const res = await fetch(build(url), { signal: AbortSignal.timeout(12000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      html = await res.text();
-      if (html && html.length > 200) break;
+      const recipe = await attempt();
+      if (recipe && recipe.title && (recipe.ingredients?.length || recipe.steps?.length)) {
+        return recipe;
+      }
+      // titre seul : on accepte quand même si titre non générique
+      if (recipe && recipe.title && recipe.title !== 'Recette importée') {
+        return recipe;
+      }
+      lastError = new Error('Page récupérée mais aucune recette détectée');
     } catch (e) {
       lastError = e;
+      console.warn('Import URL attempt failed:', e.message || e);
     }
   }
-  if (!html) throw lastError || new Error('Impossible de récupérer la page (CORS ou réseau)');
-  return parseRecipeFromHtml(html, url);
+
+  const msg = (lastError && lastError.message) ? lastError.message : 'échec réseau';
+  throw new Error(
+    `Impossible de récupérer cette page automatiquement (${msg}). ` +
+    'Utilisez le coller HTML : sur le site, cliquez droit → Afficher le code source → Ctrl+A → Ctrl+C, puis collez ci-dessous.'
+  );
+}
+
+function parseRecipeFromMarkdown(md, sourceUrl) {
+  const lines = md.split(/\n/);
+  let title = '';
+  const titleMatch = md.match(/^Title:\s*(.+)$/m);
+  if (titleMatch) title = titleMatch[1].trim();
+  if (!title) {
+    const h = md.match(/^#+\s+(.+)$/m);
+    if (h) title = h[1].trim();
+  }
+  if (!title) title = 'Recette importée';
+
+  // Extract section after ## Ingrédients / Ingredients
+  const ingredients = [];
+  const steps = [];
+  let mode = null;
+  for (const line of lines) {
+    const t = line.trim();
+    if (/^#+\s*(ingr[eé]dients?|ingredients?)/i.test(t)) { mode = 'ing'; continue; }
+    if (/^#+\s*(pr[eé]paration|instructions?|steps?|directions?|m[eé]thode)/i.test(t)) { mode = 'steps'; continue; }
+    if (/^#+\s/.test(t) && mode) { mode = null; continue; }
+    if (!t || t.startsWith('![') || t.startsWith('http') || t.startsWith('URL Source')) continue;
+    // bullet or numbered
+    const bullet = t.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '').trim();
+    if (!bullet || bullet.length < 2) continue;
+    // skip nav crumbs
+    if (/^(accueil|recettes|dessert|plat)/i.test(bullet) && bullet.length < 40) continue;
+    if (mode === 'ing') ingredients.push(bullet);
+    else if (mode === 'steps') steps.push(bullet);
+  }
+
+  // Time heuristic
+  let prepTime = '';
+  const timeMatch = md.match(/(\d+\s*min)/i);
+  if (timeMatch) prepTime = timeMatch[1];
+
+  return {
+    title,
+    category: 'plat',
+    prepTime,
+    servings: '',
+    source: sourceUrl || '',
+    ingredients: ingredients.length ? ingredients : [''],
+    steps: steps.length ? steps : [''],
+    notes: ingredients.length || steps.length
+      ? 'Import automatique (markdown) — vérifiez les quantités.'
+      : 'Import partiel — complétez manuellement.',
+    photo: null,
+    favorite: false
+  };
 }
 
 function parseRecipeFromHtml(html, sourceUrl) {

@@ -1126,15 +1126,20 @@ function openImportUrlModal() {
   openModal(`
     <div class="modal-handle"></div>
     <h2 class="modal-title">Importer depuis une URL</h2>
-    <p class="text-muted text-sm mb-16">Collez le lien d’une page recette (Marmiton, cuisineAZ, blogs…). Fonctionne surtout si la page expose les données structurées (schema.org).</p>
+    <p class="text-muted text-sm mb-16">
+      Collez le lien d’une page recette. Si le navigateur bloque le site (CORS), utilisez la méthode <strong>coller le code source</strong> ci-dessous — elle marche à tous les coups.
+    </p>
     <div class="form-group">
       <label>URL de la recette</label>
-      <input class="form-control" id="import-url" type="url" placeholder="https://…" />
+      <input class="form-control" id="import-url" type="url" placeholder="https://www.marmiton.org/recettes/…" />
     </div>
-    <p class="text-muted text-sm" style="margin-bottom:8px">Si le site bloque l’accès, collez le HTML de la page :</p>
     <div class="form-group">
-      <textarea class="form-control" id="import-html" rows="3" placeholder="Optionnel : coller le code HTML ici"></textarea>
+      <label>Ou coller le code source de la page (recommandé si échec)</label>
+      <textarea class="form-control" id="import-html" rows="4" placeholder="1. Ouvrez la recette dans le navigateur&#10;2. Clic droit → Afficher le code source de la page&#10;3. Ctrl+A puis Ctrl+C&#10;4. Collez ici"></textarea>
     </div>
+    <p class="text-muted text-sm" style="margin-bottom:12px;line-height:1.45">
+      Astuce mobile : partagez la page vers « Copier », ou utilisez le menu ⋮ → « Page desktop » puis le code source si disponible.
+    </p>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Annuler</button>
       <button class="btn btn-primary" id="btn-do-import-url" onclick="doImportFromUrl()">Importer</button>
@@ -1168,7 +1173,22 @@ async function doImportFromUrl() {
     toast('Recette récupérée — vérifiez avant d’enregistrer');
   } catch (err) {
     console.error(err);
-    toast('Échec : ' + (err.message || 'impossible de lire la page'));
+    const msg = err.message || 'impossible de lire la page';
+    // Show longer error in modal instead of short toast only
+    toast(msg.length > 80 ? 'Échec de l\'import — voir le détail' : ('Échec : ' + msg), 4000);
+    openModal(`
+      <div class="modal-handle"></div>
+      <h2 class="modal-title">Import impossible</h2>
+      <p style="font-size:0.9rem;line-height:1.5;color:var(--ink-soft);margin-bottom:14px">${escapeHtml(msg)}</p>
+      <p class="text-sm" style="margin-bottom:14px"><strong>Méthode fiable :</strong><br/>
+      1. Ouvrez la recette dans votre navigateur<br/>
+      2. Clic droit → <em>Afficher le code source</em><br/>
+      3. Ctrl+A, Ctrl+C, puis revenez ici et collez le HTML</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal()">Fermer</button>
+        <button class="btn btn-primary" onclick="openImportUrlModal()">Réessayer</button>
+      </div>
+    `);
     if (btn) { btn.disabled = false; btn.textContent = 'Importer'; }
   }
 }

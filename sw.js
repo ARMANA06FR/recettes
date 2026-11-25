@@ -1,5 +1,5 @@
 /* Service Worker — Mes Recettes PWA */
-const CACHE = 'mes-recettes-v2';
+const CACHE = 'mes-recettes-v3';
 const ASSETS = [
   './',
   './index.html',
