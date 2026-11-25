@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#e85d4c" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Mes Recettes" />
+  <meta name="description" content="Carnet de recettes personnel — menus de la semaine et listes de courses" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
+  <title>Mes Recettes</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- Install banner -->
+  <div id="install-banner" class="install-banner hidden">
+    <div class="install-banner-content">
+      <span class="install-icon">📲</span>
+      <div>
+        <strong>Installer l'application</strong>
+        <p>Ajoutez Mes Recettes à l'écran d'accueil pour un accès rapide</p>
+      </div>
+    </div>
+    <div class="install-banner-actions">
+      <button id="btn-install" class="btn btn-primary btn-sm">Installer</button>
+      <button id="btn-dismiss-install" class="btn btn-ghost btn-sm">Plus tard</button>
+    </div>
+  </div>
+
+  <!-- App shell -->
+  <div id="app" class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-top">
+        <h1 class="logo">Mes <span>Recettes</span></h1>
+        <button id="btn-search-toggle" class="icon-btn" aria-label="Rechercher" title="Rechercher">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        </button>
+      </div>
+      <div id="search-bar" class="search-bar hidden">
+        <input type="search" id="search-input" placeholder="Rechercher une recette…" autocomplete="off" />
+        <button id="btn-clear-search" class="icon-btn small" aria-label="Effacer">×</button>
+      </div>
+    </header>
+
+    <!-- Main content area -->
+    <main id="main" class="main">
+      <!-- Views will be injected here -->
+    </main>
+
+    <!-- Bottom navigation -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-view="home" aria-label="Accueil">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>
+        <span>Accueil</span>
+      </button>
+      <button class="nav-item" data-view="recipes" aria-label="Recettes">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M8 7h8M8 11h6"/></svg>
+        <span>Recettes</span>
+      </button>
+      <button class="nav-item nav-add" data-view="add" aria-label="Ajouter">
+        <div class="add-circle">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        </div>
+      </button>
+      <button class="nav-item" data-view="menu" aria-label="Menus">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
+        <span>Menus</span>
+      </button>
+      <button class="nav-item" data-view="ingredients" aria-label="Ingrédients">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 015 5c0 2.5-2 4.5-5 8-3-3.5-5-5.5-5-8a5 5 0 015-5z"/><path d="M12 22v-6"/><path d="M9 19h6"/></svg>
+        <span>Frigo</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- Modal container -->
+  <div id="modal-root"></div>
+
+  <script src="js/db.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('SW registered', reg.scope))
+          .catch(err => console.warn('SW failed', err));
+      });
+    }
+  </script>
+</body>
+</html>
