@@ -1,10 +1,11 @@
 /* Service Worker — Mes Recettes PWA */
-const CACHE = 'mes-recettes-v1';
+const CACHE = 'mes-recettes-v2';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
   './js/db.js',
+  './js/features.js',
   './js/app.js',
   './manifest.json',
   './icons/icon-192.png',
@@ -27,7 +28,6 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  // Network-first for navigation, cache-first for assets
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req)

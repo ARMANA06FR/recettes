@@ -906,3 +906,73 @@ select.form-control {
 .tag.boisson { background: #f3e8ff; color: #7c3aed; }
 .tag.sauce { background: #fef9c3; color: #a16207; }
 .tag.base { background: #f0f0f0; color: #555; }
+
+/* ===== Favorites & scale ===== */
+.fav-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255,255,255,0.92);
+  color: #e0a24b;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  box-shadow: var(--shadow);
+}
+.fav-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow);
+  z-index: 5;
+  font-size: 1.25rem;
+  color: var(--ink-muted);
+}
+.fav-btn.on { color: #e0a24b; }
+
+.tag.quick {
+  background: #fff7e6;
+  color: #b07620;
+}
+
+.scale-btns {
+  display: flex;
+  gap: 4px;
+}
+.scale-btn {
+  min-width: 36px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--cream);
+  color: var(--ink-soft);
+  border: 1.5px solid var(--border);
+}
+.scale-btn.active {
+  background: var(--coral);
+  border-color: var(--coral);
+  color: white;
+}
+
+.data-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.data-actions .btn-block { width: 100%; }
+
+.detail-actions {
+  flex-wrap: wrap;
+}

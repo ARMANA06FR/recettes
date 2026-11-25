@@ -8,11 +8,15 @@ const state = {
   recipes: [],
   fridge: [],
   currentCategory: 'all',
+  filterQuick: false,
+  filterFavorites: false,
   searchQuery: '',
   editingId: null,
   currentWeekKey: getWeekKey(),
   menu: null,
-  deferredPrompt: null
+  deferredPrompt: null,
+  scaleFactor: 1,
+  detailId: null
 };
 
 /* ===== Toast ===== */
@@ -217,12 +221,12 @@ function renderHome() {
         <button class="quick-action" onclick="setView('recipes')">
           <div class="qa-icon">📖</div>
           <strong>Toutes les recettes</strong>
-          <span>Parcourir & filtrer</span>
+          <span>Favoris, rapides…</span>
         </button>
-        <button class="quick-action" onclick="showInstallHelp()">
-          <div class="qa-icon">📲</div>
-          <strong>Installer l'app</strong>
-          <span>Sur l'écran d'accueil</span>
+        <button class="quick-action" onclick="openDataModal()">
+          <div class="qa-icon">💾</div>
+          <strong>Sauvegarde & partage</strong>
+          <span>Export, import, famille</span>
         </button>
       </div>
 
@@ -246,13 +250,16 @@ function recipeCardHTML(r) {
   const img = r.photo
     ? `<img src="${r.photo}" alt="${escapeAttr(r.title)}" loading="lazy" />`
     : `<div class="placeholder">${cat.emoji}</div>`;
+  const fav = r.favorite ? '<span class="fav-badge" title="Favori">★</span>' : '';
+  const quick = isQuickRecipe(r) ? '<span class="tag quick">⚡ Rapide</span>' : '';
   return `
     <article class="recipe-card" onclick="openRecipe('${r.id}')">
-      <div class="recipe-card-img">${img}</div>
+      <div class="recipe-card-img">${img}${fav}</div>
       <div class="recipe-card-body">
         <h3>${escapeHtml(r.title)}</h3>
         <div class="recipe-card-meta">
           <span class="tag ${r.category}">${cat.label}</span>
+          ${quick}
         </div>
       </div>
     </article>
@@ -270,13 +277,15 @@ function renderRecipesList() {
   if (state.currentCategory !== 'all') {
     list = list.filter(r => r.category === state.currentCategory);
   }
-  if (state.searchQuery) {
-    list = searchRecipes(list, state.searchQuery);
-  }
+  if (state.filterFavorites) list = list.filter(r => r.favorite);
+  if (state.filterQuick) list = list.filter(r => isQuickRecipe(r));
+  if (state.searchQuery) list = searchRecipes(list, state.searchQuery);
 
   const chips = `
     <div class="chips">
-      <button class="chip ${state.currentCategory === 'all' ? 'active' : ''}" onclick="filterCategory('all')">Toutes</button>
+      <button class="chip ${state.currentCategory === 'all' && !state.filterFavorites && !state.filterQuick ? 'active' : ''}" onclick="filterCategory('all')">Toutes</button>
+      <button class="chip ${state.filterFavorites ? 'active' : ''}" onclick="toggleFilterFav()">★ Favoris</button>
+      <button class="chip ${state.filterQuick ? 'active' : ''}" onclick="toggleFilterQuick()">⚡ &lt; 30 min</button>
       ${CATEGORIES.map(c => `
         <button class="chip ${state.currentCategory === c.id ? 'active' : ''}" onclick="filterCategory('${c.id}')">
           ${c.emoji} ${c.label}
@@ -289,14 +298,17 @@ function renderRecipesList() {
     <div class="page">
       <div class="section-title">
         <span>Mes recettes</span>
-        <button class="btn btn-secondary btn-sm" onclick="state.editingId=null;setView('edit')">+ Ajouter</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm" onclick="openImportUrlModal()" title="Importer depuis une URL">🔗</button>
+          <button class="btn btn-secondary btn-sm" onclick="state.editingId=null;setView('edit')">+ Ajouter</button>
+        </div>
       </div>
       ${chips}
       ${list.length === 0 ? `
         <div class="empty-state">
           <div class="empty-icon">📝</div>
           <h3>Aucune recette</h3>
-          <p>${state.searchQuery || state.currentCategory !== 'all' ? 'Aucun résultat pour ce filtre.' : 'Ajoutez votre première recette pour commencer.'}</p>
+          <p>${state.searchQuery || state.currentCategory !== 'all' || state.filterFavorites || state.filterQuick ? 'Aucun résultat pour ce filtre.' : 'Ajoutez votre première recette pour commencer.'}</p>
           <button class="btn btn-primary" onclick="state.editingId=null;setView('edit')">Créer une recette</button>
         </div>
       ` : `
@@ -310,6 +322,20 @@ function renderRecipesList() {
 
 function filterCategory(id) {
   state.currentCategory = id;
+  state.filterFavorites = false;
+  state.filterQuick = false;
+  render();
+}
+
+function toggleFilterFav() {
+  state.filterFavorites = !state.filterFavorites;
+  if (state.filterFavorites) state.currentCategory = 'all';
+  render();
+}
+
+function toggleFilterQuick() {
+  state.filterQuick = !state.filterQuick;
+  if (state.filterQuick) state.currentCategory = 'all';
   render();
 }
 
@@ -319,40 +345,56 @@ async function renderDetail(id) {
   if (!r) {
     return `<div class="page"><div class="empty-state"><h3>Recette introuvable</h3><button class="btn btn-primary" onclick="setView('recipes')">Retour</button></div></div>`;
   }
+  const factor = state.scaleFactor || 1;
   const cat = CATEGORIES.find(c => c.id === r.category) || CATEGORIES.find(c => c.id === 'autre');
   const img = r.photo
     ? `<img src="${r.photo}" alt="${escapeAttr(r.title)}" />`
     : '';
 
   const ingredients = (r.ingredients || []).map(i => {
-    const name = typeof i === 'string' ? i : (i.qty ? `${i.qty} ${i.name}` : i.name);
+    let name = typeof i === 'string' ? i : (i.qty ? `${i.qty} ${i.name}` : i.name);
+    name = scaleIngredientLine(name, factor);
     return `<li><span>•</span><span>${escapeHtml(name)}</span></li>`;
   }).join('');
 
   const steps = (r.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  const scaledServings = scaleServings(r.servings, factor);
+  const favLabel = r.favorite ? '★ Favori' : '☆ Favori';
 
   return `
     <div class="detail-hero">
       ${img || `<div style="width:100%;height:100%;display:grid;place-items:center;font-size:4rem;opacity:0.4">${cat.emoji}</div>`}
-      <button class="back-btn" onclick="setView('recipes')" aria-label="Retour">
+      <button class="back-btn" onclick="state.scaleFactor=1;setView('recipes')" aria-label="Retour">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
+      <button class="fav-btn ${r.favorite ? 'on' : ''}" onclick="toggleFavorite('${r.id}')" aria-label="Favori">${r.favorite ? '★' : '☆'}</button>
     </div>
     <div class="detail-body">
       <h1>${escapeHtml(r.title)}</h1>
       <div class="detail-meta">
         <span class="meta-chip">${cat.emoji} ${cat.label}</span>
         ${r.prepTime ? `<span class="meta-chip">⏱️ ${escapeHtml(r.prepTime)}</span>` : ''}
-        ${r.servings ? `<span class="meta-chip">👥 ${escapeHtml(r.servings)}</span>` : ''}
+        ${scaledServings ? `<span class="meta-chip">👥 ${escapeHtml(scaledServings)}${factor !== 1 ? ' (ajusté)' : ''}</span>` : ''}
         ${r.source ? `<span class="meta-chip">📚 ${escapeHtml(r.source)}</span>` : ''}
+        ${isQuickRecipe(r) ? `<span class="meta-chip">⚡ Rapide</span>` : ''}
       </div>
       <div class="detail-actions">
         <button class="btn btn-secondary" onclick="state.editingId='${r.id}';setView('edit')">✏️ Modifier</button>
-        <button class="btn btn-ghost" onclick="confirmDelete('${r.id}')">🗑️ Supprimer</button>
+        <button class="btn btn-ghost" onclick="shareRecipe('${r.id}')">📤 Partager</button>
+        <button class="btn btn-ghost" onclick="exportSingleRecipe('${r.id}')">💾</button>
+        <button class="btn btn-ghost" onclick="confirmDelete('${r.id}')">🗑️</button>
       </div>
       ${r.ingredients && r.ingredients.length ? `
         <div class="detail-section">
-          <h2>Ingrédients</h2>
+          <div class="flex-between" style="margin-bottom:10px">
+            <h2 style="margin:0">Ingrédients</h2>
+            <div class="scale-btns">
+              <button class="scale-btn ${factor === 0.5 ? 'active' : ''}" onclick="setScale(0.5)">×½</button>
+              <button class="scale-btn ${factor === 1 ? 'active' : ''}" onclick="setScale(1)">×1</button>
+              <button class="scale-btn ${factor === 2 ? 'active' : ''}" onclick="setScale(2)">×2</button>
+              <button class="scale-btn ${factor === 3 ? 'active' : ''}" onclick="setScale(3)">×3</button>
+            </div>
+          </div>
           <ul class="ing-checklist">${ingredients}</ul>
         </div>
       ` : ''}
@@ -370,6 +412,20 @@ async function renderDetail(id) {
       ` : ''}
     </div>
   `;
+}
+
+function setScale(f) {
+  state.scaleFactor = f;
+  render();
+}
+
+async function toggleFavorite(id) {
+  const r = await getRecipe(id);
+  if (!r) return;
+  r.favorite = !r.favorite;
+  await saveRecipe(r);
+  toast(r.favorite ? 'Ajouté aux favoris ★' : 'Retiré des favoris');
+  render();
 }
 
 function confirmDelete(id) {
@@ -395,9 +451,12 @@ async function doDelete(id) {
 async function renderEditForm(id) {
   let r = {
     title: '', category: 'plat', ingredients: [''], steps: [''],
-    prepTime: '', servings: '', source: '', notes: '', photo: null
+    prepTime: '', servings: '', source: '', notes: '', photo: null, favorite: false
   };
-  if (id) {
+  if (state._pendingImport) {
+    r = { ...r, ...state._pendingImport, ingredients: state._pendingImport.ingredients?.length ? state._pendingImport.ingredients : [''], steps: state._pendingImport.steps?.length ? state._pendingImport.steps : [''] };
+    state._pendingImport = null;
+  } else if (id) {
     const existing = await getRecipe(id);
     if (existing) r = { ...r, ...existing, ingredients: existing.ingredients?.length ? existing.ingredients : [''], steps: existing.steps?.length ? existing.steps : [''] };
   }
@@ -604,17 +663,17 @@ function bindEditForm() {
       notes: $('#f-notes').value.trim(),
       ingredients,
       steps,
-      photo: currentPhoto
+      photo: currentPhoto,
+      favorite: false
     };
 
-    // Keep existing photo if editing and no change
-    if (state.editingId && currentPhoto === null) {
+    if (state.editingId) {
       const existing = await getRecipe(state.editingId);
-      // currentPhoto null means user removed it
-      recipe.photo = null;
-    } else if (state.editingId && !currentPhoto) {
-      const existing = await getRecipe(state.editingId);
-      if (existing?.photo) recipe.photo = existing.photo;
+      if (existing) {
+        recipe.favorite = !!existing.favorite;
+        recipe.createdAt = existing.createdAt;
+        // photo: currentPhoto is set from preview on load; null means removed
+      }
     }
 
     const saved = await saveRecipe(recipe);
@@ -1009,10 +1068,117 @@ async function init() {
   showInstallBanner();
 }
 
+/* ===== Data / family share modals ===== */
+function openDataModal() {
+  openModal(`
+    <div class="modal-handle"></div>
+    <h2 class="modal-title">Sauvegarde & partage</h2>
+    <p class="text-muted text-sm mb-16">Tout est stocké sur cet appareil. Exportez pour sauvegarder ou partager en famille.</p>
+
+    <div class="data-actions">
+      <button class="btn btn-primary btn-block" onclick="exportAllData()">📥 Exporter toutes les recettes (JSON)</button>
+      <button class="btn btn-secondary btn-block" onclick="document.getElementById('import-file-merge').click()">📤 Importer (fusionner)</button>
+      <button class="btn btn-ghost btn-block" onclick="confirmReplaceImport()">⚠️ Importer (remplacer tout)</button>
+      <input type="file" id="import-file-merge" accept="application/json,.json" style="display:none" onchange="handleImportFile(event,'merge')" />
+      <input type="file" id="import-file-replace" accept="application/json,.json" style="display:none" onchange="handleImportFile(event,'replace')" />
+    </div>
+
+    <div class="shop-cat" style="margin-top:20px">Famille / multi-appareils</div>
+    <p class="text-muted text-sm" style="margin-bottom:12px">
+      1. Sur l’appareil A : exporter le JSON<br/>
+      2. Envoyer le fichier (WhatsApp, Drive, mail…)<br/>
+      3. Sur l’appareil B : importer en fusion<br/>
+      Pour une seule recette : ouvrez-la → bouton 💾 ou 📤
+    </p>
+    <button class="btn btn-secondary btn-block" onclick="closeModal();openImportUrlModal()">🔗 Importer depuis une URL de recette</button>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-block" onclick="closeModal()">Fermer</button>
+    </div>
+  `);
+}
+
+function confirmReplaceImport() {
+  openModal(`
+    <div class="modal-handle"></div>
+    <h2 class="modal-title">Remplacer toutes les recettes ?</h2>
+    <p style="color:var(--ink-soft);margin-bottom:12px">Les recettes actuelles seront supprimées puis remplacées par le fichier. Cette action est irréversible.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="openDataModal()">Annuler</button>
+      <button class="btn btn-danger" onclick="document.getElementById('import-file-replace')?.click();document.getElementById('import-file-replace')||(function(){const i=document.createElement('input');i.type='file';i.accept='application/json,.json';i.onchange=e=>handleImportFile(e,'replace');i.click();})()">Choisir le fichier</button>
+    </div>
+    <input type="file" id="import-file-replace" accept="application/json,.json" style="display:none" onchange="handleImportFile(event,'replace')" />
+  `);
+}
+
+async function handleImportFile(event, mode) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  closeModal();
+  toast('Import en cours…');
+  const result = await importFromFile(file, mode);
+  if (result.ok) {
+    await loadData();
+    setView('recipes');
+  }
+}
+
+function openImportUrlModal() {
+  openModal(`
+    <div class="modal-handle"></div>
+    <h2 class="modal-title">Importer depuis une URL</h2>
+    <p class="text-muted text-sm mb-16">Collez le lien d’une page recette (Marmiton, cuisineAZ, blogs…). Fonctionne surtout si la page expose les données structurées (schema.org).</p>
+    <div class="form-group">
+      <label>URL de la recette</label>
+      <input class="form-control" id="import-url" type="url" placeholder="https://…" />
+    </div>
+    <p class="text-muted text-sm" style="margin-bottom:8px">Si le site bloque l’accès, collez le HTML de la page :</p>
+    <div class="form-group">
+      <textarea class="form-control" id="import-html" rows="3" placeholder="Optionnel : coller le code HTML ici"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" id="btn-do-import-url" onclick="doImportFromUrl()">Importer</button>
+    </div>
+  `);
+}
+
+async function doImportFromUrl() {
+  const url = $('#import-url')?.value?.trim() || '';
+  const htmlPaste = $('#import-html')?.value?.trim() || '';
+  const btn = $('#btn-do-import-url');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  try {
+    let recipe;
+    if (htmlPaste && htmlPaste.length > 100) {
+      recipe = parseRecipeFromHtmlText(htmlPaste, url);
+    } else if (url) {
+      toast('Récupération de la page…');
+      recipe = await fetchRecipeFromUrl(url);
+    } else {
+      toast('Indiquez une URL ou collez du HTML');
+      if (btn) { btn.disabled = false; btn.textContent = 'Importer'; }
+      return;
+    }
+    closeModal();
+    // Open in edit form for review
+    state.editingId = null;
+    state._pendingImport = recipe;
+    setView('edit');
+    toast('Recette récupérée — vérifiez avant d’enregistrer');
+  } catch (err) {
+    console.error(err);
+    toast('Échec : ' + (err.message || 'impossible de lire la page'));
+    if (btn) { btn.disabled = false; btn.textContent = 'Importer'; }
+  }
+}
+
 // Expose functions used in inline HTML handlers
 window.setView = setView;
 window.openRecipe = openRecipe;
 window.filterCategory = filterCategory;
+window.toggleFilterFav = toggleFilterFav;
+window.toggleFilterQuick = toggleFilterQuick;
 window.confirmDelete = confirmDelete;
 window.doDelete = doDelete;
 window.removeIngRow = removeIngRow;
@@ -1027,6 +1193,16 @@ window.clearWeekMenu = clearWeekMenu;
 window.autoFillMenu = autoFillMenu;
 window.closeModal = closeModal;
 window.showInstallHelp = showInstallHelp;
+window.setScale = setScale;
+window.toggleFavorite = toggleFavorite;
+window.openDataModal = openDataModal;
+window.openImportUrlModal = openImportUrlModal;
+window.exportAllData = exportAllData;
+window.exportSingleRecipe = exportSingleRecipe;
+window.shareRecipe = shareRecipe;
+window.handleImportFile = handleImportFile;
+window.confirmReplaceImport = confirmReplaceImport;
+window.doImportFromUrl = doImportFromUrl;
 window.state = state;
 
 init().catch(err => {
